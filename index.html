@@ -1,0 +1,145 @@
+!doctype html>
+<html lang="kk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Сарыағаштың көрікті жерлері — картасы</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<style>
+:root{--navy:#0A1E4A;--gold:#F5C842;--bg:#EDF1F8;--ink:#0B1F4B;--mut:#52607A}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--bg)}
+header{background:var(--navy);color:#fff;padding:14px 20px}
+header h1{margin:0;font-size:20px}
+header p{margin:4px 0 0;font-size:13px;color:#cbd7ee}
+header b{color:var(--gold)}
+main{display:flex;height:calc(100vh - 72px);min-height:480px}
+#list{width:360px;max-width:42%;overflow:auto;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--bg)}
+#map{flex:1}
+.card{background:#fff;border-radius:14px;padding:12px 14px;box-shadow:0 2px 8px rgba(11,31,75,.1);cursor:pointer;border:2px solid transparent}
+.card.active{border-color:var(--gold)}
+.card h2{margin:0 0 4px;font-size:15px}
+.card .meta{font-size:12.5px;color:var(--mut);line-height:1.5}
+.btns{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+button,a.btn{font:inherit;font-size:13px;font-weight:600;border:0;border-radius:10px;padding:9px 12px;cursor:pointer;text-decoration:none;display:inline-block}
+.primary{background:var(--navy);color:#fff}
+.ghost{background:#E6ECF8;color:var(--navy)}
+#status{font-size:13px;padding:8px 12px;background:#FFF4D2;border-radius:10px;color:#5C4508}
+@media (max-width:760px){
+main{flex-direction:column-reverse;height:auto}
+#map{height:55vh;flex:none}
+#list{width:100%;max-width:none}
+}
+</style>
+</head>
+<body>
+<header>
+<h1>Сарыағаштың көрікті жерлері — <b>маршрут картасы</b></h1>
+<p>Орынды таңдап, «Маршрут» батырмасын басыңыз — жол картада сызылады.</p>
+</header>
+<main>
+<section id="list" aria-label="Көрікті жерлер тізімі"><div id="status">Алдымен орынды таңдаңыз. Маршрут үшін орналасқан жеріңізге рұқсат беріңіз.</div></section>
+<div id="map" role="application" aria-label="Карта"></div>
+</main>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+// Курорттар тізімі. Қосу үшін жаңа жол қосыңыз.
+var PLACES = [
+  {name:"Сарыағаш арбаты", lat:41.4583838, lng:69.1636167, desc:"Қала орталығындағы серуен орны, фотоға түсуге ыңғайлы әдемі жер.", tag:"Көрікті жер"},
+  {name:"Орталық саябақ", lat:41.4562171, lng:69.177361, desc:"Сарыағаш қаласындағы орталық саябақ, серуендеуге арналған жасыл аймақ.", tag:"Саябақ"},
+  {name:"Жеңіс саябағы", lat:41.4509003, lng:69.1655784, desc:"Исмаилов көшесіндегі қала саябағы.", tag:"Саябақ"},
+  {name:"Жеңіс мемориалы (1941–1945)", lat:41.4514698, lng:69.1651405, desc:"Жеңіс саябағындағы Ұлы Отан соғысы құрбандарына арналған мемориал.", tag:"Ескерткіш"},
+  {name:"Қалалық мешіт", lat:41.4523928, lng:69.1814125, desc:"Алтын күмбезді қала мешіті, Исмаилов көшесі.", tag:"Көрікті жер"},
+  {name:"Иса ата әулие — панорамалық көрініс", lat:41.3873096, lng:69.0673505, desc:"Көктерек кенті маңындағы биіктеу орын, төбеден әдемі панорама ашылады.", tag:"Табиғи көрініс"}
+];
+
+var map = L.map("map").setView([41.455, 69.17], 12);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  maxZoom: 19,
+  attribution: "&copy; OpenStreetMap contributors"
+}).addTo(map);
+
+var listEl = document.getElementById("list");
+var statusEl = document.getElementById("status");
+var markers = [], cards = [], routeLayer = null, meMarker = null, me = null;
+
+function setStatus(t){ statusEl.textContent = t; }
+
+function gmapsUrl(p){
+  var u = "https://www.google.com/maps/dir/?api=1&travelmode=driving&destination=" + p.lat + "," + p.lng;
+  if (me) u += "&origin=" + me.lat + "," + me.lng;
+  return u;
+}
+
+function select(i){
+  cards.forEach(function(c, k){ c.classList.toggle("active", k === i); });
+  markers[i].openPopup();
+  map.setView([PLACES[i].lat, PLACES[i].lng], 14);
+}
+
+function getMe(cb){
+  if (me) return cb(me);
+  if (!navigator.geolocation){ return cb(null); }
+  setStatus("Орналасқан жеріңіз анықталуда…");
+  navigator.geolocation.getCurrentPosition(function(pos){
+    me = {lat: pos.coords.latitude, lng: pos.coords.longitude};
+    if (meMarker) map.removeLayer(meMarker);
+    meMarker = L.circleMarker([me.lat, me.lng], {radius:8, color:"#fff", weight:3, fillColor:"#1D6FEA", fillOpacity:1}).addTo(map).bindTooltip("Сіз осындасыз");
+    cb(me);
+  }, function(){ cb(null); }, {enableHighAccuracy:true, timeout:10000});
+}
+
+function route(i){
+  var p = PLACES[i];
+  select(i);
+  getMe(function(m){
+    if (!m){
+      setStatus("Орналасқан жеріңіз анықталмады. Google Maps ашылады — ол жолды өзі салады.");
+      window.open(gmapsUrl(p), "_blank");
+      return;
+    }
+    setStatus("Маршрут салынуда…");
+    var url = "https://router.project-osrm.org/route/v1/driving/" + m.lng + "," + m.lat + ";" + p.lng + "," + p.lat + "?overview=full&geometries=geojson";
+    fetch(url).then(function(r){ return r.json(); }).then(function(d){
+      if (!d.routes || !d.routes.length) throw new Error("no route");
+      var r = d.routes[0];
+      if (routeLayer) map.removeLayer(routeLayer);
+      routeLayer = L.geoJSON(r.geometry, {style:{color:"#0A1E4A", weight:6, opacity:.85}}).addTo(map);
+      map.fitBounds(routeLayer.getBounds(), {padding:[40,40]});
+      setStatus(p.name + ": " + (r.distance/1000).toFixed(1) + " км, шамамен " + Math.round(r.duration/60) + " мин (көлікпен).");
+    }).catch(function(){
+      setStatus("Маршрутты картаға салу мүмкін болмады. Google Maps ашылады.");
+      window.open(gmapsUrl(p), "_blank");
+    });
+  });
+}
+
+PLACES.forEach(function(p, i){
+  var m = L.marker([p.lat, p.lng]).addTo(map).bindPopup("<b>" + p.name + "</b><br>" + p.desc);
+  m.on("click", function(){ select(i); });
+  markers.push(m);
+
+  var c = document.createElement("div");
+  c.className = "card";
+  c.innerHTML = "<h2>" + (i+1) + ". " + p.name + "</h2><div class='meta'><b>" + p.tag + "</b><br>" + p.desc + "</div>";
+  var b = document.createElement("div");
+  b.className = "btns";
+  var r = document.createElement("button");
+  r.className = "primary"; r.textContent = "Маршрут";
+  r.onclick = function(e){ e.stopPropagation(); route(i); };
+  var g = document.createElement("a");
+  g.className = "btn ghost"; g.target = "_blank"; g.rel = "noopener"; g.textContent = "Google Maps";
+  g.href = gmapsUrl(p);
+  g.onclick = function(e){ e.stopPropagation(); g.href = gmapsUrl(p); };
+  b.appendChild(r); b.appendChild(g);
+  c.appendChild(b);
+  c.onclick = function(){ select(i); };
+  listEl.appendChild(c);
+  cards.push(c);
+});
+
+map.fitBounds(L.latLngBounds(PLACES.map(function(p){ return [p.lat, p.lng]; })), {padding:[30,30]});
+</script>
+</body>
+</html>
